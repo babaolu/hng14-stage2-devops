@@ -47,8 +47,7 @@ jobs:
       - name: Install eslint
         run: |
           cd frontend
-          npm install --save-dev eslint@8 @eslint/js
-          npx eslint --init || true
+          npm ci
 
       - name: Lint JavaScript (eslint)
         run: |
