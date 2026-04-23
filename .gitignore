@@ -1,0 +1,28 @@
+# Environment files — NEVER commit these
+.env
+.env.local
+.env.*.local
+api/.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+htmlcov/
+coverage.xml
+.coverage
+dist/
+*.egg-info/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Docker
+*.tar
+
+# IDE
+.vscode/
+.idea/
+*.swp
