@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
-QUEUE_NAME = os.getenv("QUEUE_NAME", "jobs")
 
 shutdown_requested = False
 
@@ -54,7 +53,7 @@ def main():
                 r.ping()
                 logger.info("Connected to Redis")
 
-            job = r.brpop(QUEUE_NAME, timeout=5)
+            job = r.brpop("job", timeout=5)
             if job:
                 _, job_id = job
                 process_job(r, job_id)
