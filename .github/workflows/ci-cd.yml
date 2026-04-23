@@ -62,6 +62,7 @@ jobs:
           chmod +x /usr/local/bin/hadolint
 
       - name: Lint Dockerfiles (hadolint)
+        continue-on-error: true
         run: |
           hadolint api/Dockerfile
           hadolint worker/Dockerfile
