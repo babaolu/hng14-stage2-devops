@@ -52,9 +52,7 @@ jobs:
       - name: Lint JavaScript (eslint)
         run: |
           cd frontend
-          npx eslint app.js --env node --env es2021 \
-            --rule '{"no-unused-vars": "warn", "no-undef": "error"}' \
-            --parser-options 'ecmaVersion:2021'
+          npx eslint app.js
 
       # Dockerfiles — hadolint
       - name: Install hadolint
