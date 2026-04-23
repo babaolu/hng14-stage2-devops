@@ -11,6 +11,7 @@ env:
   API_IMAGE: localhost:5000/api
   WORKER_IMAGE: localhost:5000/worker
   FRONTEND_IMAGE: localhost:5000/frontend
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STAGE 1 — LINT
@@ -20,7 +21,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Python — flake8
       - name: Set up Python
