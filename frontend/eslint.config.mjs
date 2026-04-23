@@ -1,19 +1,17 @@
 import js from "@eslint/js";
 import globals from "globals";
+import { defineConfig } from "eslint/config";
 
-export default [
-  js.configs.recommended,
+export default defineConfig([
   {
-    files: ["**/*.js"],
+    files: ["**/*.{js,mjs,cjs}"],
+    plugins: { js },
+    extends: ["js/recommended"],
     languageOptions: {
-      globals: {
-        ...globals.node,
-      },
-      ecmaVersion: 2021,
-      sourceType: "script",
+      globals: globals.node, // <-- key fix
     },
     rules: {
-      "no-unused-vars": "warn", // or "error" if you want it to fail CI
+      "no-unused-vars": "warn", // so `err` doesn't fail CI, OR set to "error" and use err
     },
   },
-];
+]);
