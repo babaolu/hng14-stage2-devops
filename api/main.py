@@ -9,6 +9,7 @@ app = FastAPI()
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+QUEUE_NAME = os.getenv("QUEUE_NAME", "jobs")
 
 r = redis.Redis(
     host=REDIS_HOST,
@@ -27,7 +28,7 @@ def health():
 @app.post("/jobs", status_code=201)
 def create_job():
     job_id = str(uuid.uuid4())
-    r.lpush("job", job_id)
+    r.lpush(QUEUE_NAME, job_id)
     r.hset(f"job:{job_id}", "status", "queued")
     return {"job_id": job_id}
 

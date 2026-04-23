@@ -278,25 +278,24 @@ jobs:
 
       - name: Create .env for compose
         run: |
-          cat > .env <<EOF
-          REDIS_PASSWORD=integration-test-secret
-          QUEUE_NAME=jobs
-          EOF
+          printf 'REDIS_PASSWORD=integration-test-secret\nQUEUE_NAME=jobs\n' > .env
+          cat .env
 
       # Point compose to the images we already built
+      # Base file is compose.yml so override must be compose.override.yml
       - name: Override image tags to use built SHA
         run: |
-          cat > docker-compose.override.yml <<EOF
+          cat > compose.override.yml << EOF
           services:
             api:
               image: ${{ env.API_IMAGE }}:${{ env.SHA }}
-              build: ~
+              build: null
             worker:
               image: ${{ env.WORKER_IMAGE }}:${{ env.SHA }}
-              build: ~
+              build: null
             frontend:
               image: ${{ env.FRONTEND_IMAGE }}:${{ env.SHA }}
-              build: ~
+              build: null
           EOF
 
       - name: Start local registry and pull images
