@@ -90,8 +90,7 @@ jobs:
       - name: Run pytest with coverage
         run: |
           cd api
-          pytest --cov=. --cov-report=xml --cov-report=term-missing \
-                 --cov-omit="tests/*" -v
+          pytest --cov=. --cov-report=xml --cov-report=term-missing -v
         env:
           REDIS_HOST: "localhost"
           REDIS_PORT: "6379"
