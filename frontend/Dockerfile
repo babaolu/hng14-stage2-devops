@@ -1,22 +1,21 @@
 # syntax=docker/dockerfile:1
 # ── Stage 1: install production dependencies ──────────────────────────────────
-FROM node:20-slim AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /build
 
-# Copy lockfile + manifest first for layer caching
 COPY package*.json ./
 RUN npm ci --only=production
 
 
 # ── Stage 2: production image ─────────────────────────────────────────────────
-FROM node:20-slim AS runtime
+FROM node:20-alpine AS runtime
 
-RUN useradd --no-create-home --shell /bin/false appuser
+# Alpine uses adduser, not useradd
+RUN adduser --no-create-home --disabled-password --shell /bin/false appuser
 
 WORKDIR /app
 
-# Only copy what's needed — no devDependencies, no build tools
 COPY --from=builder /build/node_modules ./node_modules
 COPY app.js .
 COPY views/ ./views/
@@ -25,7 +24,8 @@ USER appuser
 
 EXPOSE 3000
 
+# Alpine has wget built in — simpler than spawning a full node process
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+    CMD wget -qO- http://localhost:3000/health || exit 1
 
 CMD ["node", "app.js"]

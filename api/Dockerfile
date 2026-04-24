@@ -1,13 +1,11 @@
 # syntax=docker/dockerfile:1
 # ── Stage 1: build / dependency resolution ───────────────────────────────────
-FROM python:3.12-slim AS builder
+FROM python:3.12-alpine AS builder
 
 WORKDIR /build
 
-# Install only what's needed to compile dependencies
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc \
-    && rm -rf /var/lib/apt/lists/*
+# Alpine needs gcc + musl-dev to compile some Python packages
+RUN apk add --no-cache gcc musl-dev libffi-dev
 
 COPY requirements.txt .
 RUN pip install --upgrade pip \
@@ -15,25 +13,21 @@ RUN pip install --upgrade pip \
 
 
 # ── Stage 2: production image ─────────────────────────────────────────────────
-FROM python:3.12-slim AS runtime
+FROM python:3.12-alpine AS runtime
 
-# Never run as root
-RUN useradd --no-create-home --shell /bin/false appuser
+RUN adduser --no-create-home --disabled-password --shell /bin/false appuser
 
 WORKDIR /app
 
-# Pull only the installed packages from the builder stage
 COPY --from=builder /install /usr/local
 
-# Copy application source
 COPY main.py .
 
-# Drop to non-root
 USER appuser
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+    CMD wget -qO- http://localhost:8000/health || exit 1
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

@@ -1,12 +1,10 @@
 # syntax=docker/dockerfile:1
 # ── Stage 1: dependency resolution ───────────────────────────────────────────
-FROM python:3.12-slim AS builder
+FROM python:3.12-alpine AS builder
 
 WORKDIR /build
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache gcc musl-dev libffi-dev
 
 COPY requirements.txt .
 RUN pip install --upgrade pip \
@@ -14,9 +12,9 @@ RUN pip install --upgrade pip \
 
 
 # ── Stage 2: production image ─────────────────────────────────────────────────
-FROM python:3.12-slim AS runtime
+FROM python:3.12-alpine AS runtime
 
-RUN useradd --no-create-home --shell /bin/false appuser
+RUN adduser --no-create-home --disabled-password --shell /bin/false appuser
 
 WORKDIR /app
 
@@ -26,7 +24,7 @@ COPY worker.py .
 
 USER appuser
 
-# The worker has no HTTP port, so we healthcheck via a Redis ping script
+# Worker has no HTTP port — healthcheck via Redis ping
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "\
 import os, redis; \
