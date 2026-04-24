@@ -5,7 +5,7 @@ Redis is fully mocked — no live Redis instance required.
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
-from api import main
+import main
 
 
 @pytest.fixture()
