@@ -7,10 +7,9 @@ on:
     branches: [main]
 
 env:
-  REGISTRY: localhost:5000
-  API_IMAGE: localhost:5000/api
-  WORKER_IMAGE: localhost:5000/worker
-  FRONTEND_IMAGE: localhost:5000/frontend
+  # ghcr.io persists across all jobs — no more "manifest unknown" errors
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -77,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: lint
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -107,24 +106,28 @@ jobs:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STAGE 3 — BUILD
+# Pushes to ghcr.io which persists across all downstream jobs
 # ─────────────────────────────────────────────────────────────────────────────
   build:
     name: Build
     runs-on: ubuntu-latest
     needs: test
-    services:
-      registry:
-        image: registry:2
-        ports:
-          - 5000:5000
+    permissions:
+      contents: read
+      packages: write   # required to push to ghcr.io
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          driver-opts: network=host
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get short SHA
         id: vars
@@ -136,8 +139,8 @@ jobs:
           context: ./api
           push: true
           tags: |
-            ${{ env.API_IMAGE }}:${{ steps.vars.outputs.sha_short }}
-            ${{ env.API_IMAGE }}:latest
+            ${{ env.IMAGE_PREFIX }}/api:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE_PREFIX }}/api:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -147,8 +150,8 @@ jobs:
           context: ./worker
           push: true
           tags: |
-            ${{ env.WORKER_IMAGE }}:${{ steps.vars.outputs.sha_short }}
-            ${{ env.WORKER_IMAGE }}:latest
+            ${{ env.IMAGE_PREFIX }}/worker:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE_PREFIX }}/worker:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -158,8 +161,8 @@ jobs:
           context: ./frontend
           push: true
           tags: |
-            ${{ env.FRONTEND_IMAGE }}:${{ steps.vars.outputs.sha_short }}
-            ${{ env.FRONTEND_IMAGE }}:latest
+            ${{ env.IMAGE_PREFIX }}/frontend:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE_PREFIX }}/frontend:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -175,19 +178,19 @@ jobs:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STAGE 4 — SECURITY SCAN
+# Pulls images from ghcr.io — they exist because build job pushed them there
 # ─────────────────────────────────────────────────────────────────────────────
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
     needs: build
-    services:
-      registry:
-        image: registry:2
-        ports:
-          - 5000:5000
+    permissions:
+      contents: read
+      packages: read
+      security-events: write   # required to upload SARIF to Security tab
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download SHA artifact
         uses: actions/download-artifact@v4
@@ -197,12 +200,18 @@ jobs:
       - name: Set SHA env
         run: echo "SHA=$(cat sha.txt)" >> $GITHUB_ENV
 
-      # Pull images back from local registry so Trivy can scan them
-      - name: Pull images from local registry
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull images from ghcr.io
         run: |
-          docker pull ${{ env.API_IMAGE }}:${{ env.SHA }}
-          docker pull ${{ env.WORKER_IMAGE }}:${{ env.SHA }}
-          docker pull ${{ env.FRONTEND_IMAGE }}:${{ env.SHA }}
+          docker pull ${{ env.IMAGE_PREFIX }}/api:${{ env.SHA }}
+          docker pull ${{ env.IMAGE_PREFIX }}/worker:${{ env.SHA }}
+          docker pull ${{ env.IMAGE_PREFIX }}/frontend:${{ env.SHA }}
 
       - name: Install Trivy
         run: |
@@ -220,7 +229,7 @@ jobs:
             --severity CRITICAL \
             --format sarif \
             --output api-scan.sarif \
-            ${{ env.API_IMAGE }}:${{ env.SHA }}
+            ${{ env.IMAGE_PREFIX }}/api:${{ env.SHA }}
 
       - name: Scan Worker image
         run: |
@@ -229,7 +238,7 @@ jobs:
             --severity CRITICAL \
             --format sarif \
             --output worker-scan.sarif \
-            ${{ env.WORKER_IMAGE }}:${{ env.SHA }}
+            ${{ env.IMAGE_PREFIX }}/worker:${{ env.SHA }}
 
       - name: Scan Frontend image
         run: |
@@ -238,9 +247,9 @@ jobs:
             --severity CRITICAL \
             --format sarif \
             --output frontend-scan.sarif \
-            ${{ env.FRONTEND_IMAGE }}:${{ env.SHA }}
+            ${{ env.IMAGE_PREFIX }}/frontend:${{ env.SHA }}
 
-      - name: Upload SARIF results
+      - name: Upload SARIF results as artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -258,14 +267,18 @@ jobs:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STAGE 5 — INTEGRATION TEST
+# Pulls images from ghcr.io and runs the full stack
 # ─────────────────────────────────────────────────────────────────────────────
   integration-test:
     name: Integration Test
     runs-on: ubuntu-latest
     needs: security-scan
+    permissions:
+      contents: read
+      packages: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download SHA artifact
         uses: actions/download-artifact@v4
@@ -275,50 +288,57 @@ jobs:
       - name: Set SHA env
         run: echo "SHA=$(cat sha.txt)" >> $GITHUB_ENV
 
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create .env for compose
         run: |
           printf 'REDIS_PASSWORD=integration-test-secret\nQUEUE_NAME=jobs\n' > .env
           cat .env
 
-      # Point compose to the images we already built
-      # Base file is compose.yml so override must be compose.override.yml
-      - name: Override image tags to use built SHA
+      # compose.yml base → override file must be compose.override.yml
+      - name: Write compose override to use pre-built images
         run: |
           cat > compose.override.yml << EOF
           services:
             api:
-              image: ${{ env.API_IMAGE }}:${{ env.SHA }}
+              image: ${{ env.IMAGE_PREFIX }}/api:${{ env.SHA }}
               build: null
             worker:
-              image: ${{ env.WORKER_IMAGE }}:${{ env.SHA }}
+              image: ${{ env.IMAGE_PREFIX }}/worker:${{ env.SHA }}
               build: null
             frontend:
-              image: ${{ env.FRONTEND_IMAGE }}:${{ env.SHA }}
+              image: ${{ env.IMAGE_PREFIX }}/frontend:${{ env.SHA }}
               build: null
           EOF
 
-      - name: Start local registry and pull images
+      - name: Pull images from ghcr.io
         run: |
-          docker run -d -p 5000:5000 --name registry registry:2
-          docker pull ${{ env.API_IMAGE }}:${{ env.SHA }}
-          docker pull ${{ env.WORKER_IMAGE }}:${{ env.SHA }}
-          docker pull ${{ env.FRONTEND_IMAGE }}:${{ env.SHA }}
+          docker pull ${{ env.IMAGE_PREFIX }}/api:${{ env.SHA }}
+          docker pull ${{ env.IMAGE_PREFIX }}/worker:${{ env.SHA }}
+          docker pull ${{ env.IMAGE_PREFIX }}/frontend:${{ env.SHA }}
 
       - name: Start full stack
-        run: docker compose up -d --wait
+        run: docker compose up -d --wait --timeout 120
 
       - name: Wait for all services to be healthy
         run: |
           echo "Waiting for services..."
-          timeout 90 bash -c '
-            until docker compose ps --format json | \
+          timeout 120 bash -c '
+            until docker compose ps --format json 2>/dev/null | \
               python3 -c "
           import sys, json
-          services = [json.loads(l) for l in sys.stdin if l.strip()]
+          lines = [l for l in sys.stdin if l.strip()]
+          services = [json.loads(l) for l in lines]
           unhealthy = [s[\"Name\"] for s in services if s.get(\"Health\") not in (\"healthy\", \"\")]
           sys.exit(0 if not unhealthy else 1)
-            "; do
+              "; do
               echo "  Still waiting..."
+              docker compose ps
               sleep 5
             done
           '
@@ -329,7 +349,7 @@ jobs:
         run: |
           JOB_RESPONSE=$(curl -sf -X POST http://localhost:3000/submit)
           echo "Response: $JOB_RESPONSE"
-          JOB_ID=$(echo $JOB_RESPONSE | python3 -c "import sys,json; print(json.load(sys.stdin)['job_id'])")
+          JOB_ID=$(echo "$JOB_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['job_id'])")
           echo "job_id=$JOB_ID" >> $GITHUB_OUTPUT
           echo "Submitted job: $JOB_ID"
 
@@ -379,7 +399,7 @@ jobs:
     environment: production
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download SHA artifact
         uses: actions/download-artifact@v4
@@ -395,40 +415,26 @@ jobs:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
 
       - name: Add host to known_hosts
-        run: |
-          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+        run: ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
 
       - name: Rolling update on production host
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          REGISTRY: ${{ secrets.REGISTRY_URL }}
           IMAGE_SHA: ${{ env.SHA }}
+          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
         run: |
           ssh $DEPLOY_USER@$DEPLOY_HOST bash -s << 'ENDSSH'
             set -euo pipefail
             cd /opt/app
 
-            export NEW_SHA="${IMAGE_SHA}"
-            export REGISTRY="${REGISTRY}"
-
             rolling_update() {
               local SERVICE=$1
-              local NEW_IMAGE="${REGISTRY}/${SERVICE}:${NEW_SHA}"
-
+              local NEW_IMAGE="${IMAGE_PREFIX}/${SERVICE}:${IMAGE_SHA}"
               echo "==> Rolling update: $SERVICE → $NEW_IMAGE"
-
-              # Pull the new image first
               docker pull "$NEW_IMAGE"
-
-              # Start a new container alongside the old one
               OLD_CONTAINER=$(docker compose ps -q $SERVICE 2>/dev/null || true)
-
-              # Update the service with the new image
-              IMAGE_OVERRIDE="${SERVICE^^}_IMAGE=$NEW_IMAGE" \
-                docker compose up -d --no-deps --scale ${SERVICE}=1 ${SERVICE}
-
-              # Wait up to 60s for the new container to become healthy
+              docker compose up -d --no-deps --scale ${SERVICE}=1 ${SERVICE}
               NEW_CONTAINER=$(docker compose ps -q $SERVICE)
               echo "  Waiting for $SERVICE to be healthy..."
               SECONDS=0
@@ -441,10 +447,7 @@ jobs:
                 fi
                 sleep 3
               done
-
-              # Health check failed — abort and restore old container
               echo "  ABORT: $SERVICE did not become healthy within 60s"
-              echo "  Restarting old container..."
               [ -n "$OLD_CONTAINER" ] && docker start "$OLD_CONTAINER" || true
               docker compose stop $SERVICE || true
               return 1
@@ -453,6 +456,5 @@ jobs:
             rolling_update api
             rolling_update worker
             rolling_update frontend
-
             echo "==> Deployment complete"
           ENDSSH
